@@ -6,6 +6,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import ru.practicum.moviehub.api.ErrorResponse;
 import ru.practicum.moviehub.model.Movie;
 import ru.practicum.moviehub.store.MoviesStore;
 
@@ -14,13 +18,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Year;
 import java.util.List;
 import java.util.Map;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class MoviesApiTest {
@@ -105,8 +112,142 @@ public class MoviesApiTest {
         assertNotEquals(first.id(), second.id());
     }
 
+    @Test
+    void postMovies_whenTitleLengthAndYearsAreOnInclusiveLimits_createsMovies() {
+        String title = "я".repeat(100);
+        int lastAllowedYear = Year.now().getValue() + 1;
+
+
+        HttpResponse<String> first = postMovie(title, 1888);
+        HttpResponse<String> second = postMovie(title, lastAllowedYear);
+
+
+        assertEquals(201, first.statusCode());
+        assertEquals(201, second.statusCode());
+        assertEquals(title, readMovie(first).title());
+        assertEquals(1888, readMovie(first).year());
+        assertEquals(lastAllowedYear, readMovie(second).year());
+    }
+
+    @Test
+    void postMovies_whenTitleIsTooLong_returns422() {
+        HttpResponse<String> response = postMovie("я".repeat(101), 2016);
+
+
+        assertValidationError(response, 1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"\"", "\"   \"", "42", "null"})
+    void postMovies_whenTitleIsInvalid_returns422(String titleJson) {
+        String body = "{\"title\": %s, \"year\": 2016}".formatted(titleJson);
+
+        HttpResponse<String> response = postJson(body, JSON_UTF_8);
+
+        assertValidationError(response, 1);
+    }
+
+    @Test
+    void postMovies_whenYearIsOutsideLimits_returns422() {
+        int firstDisallowedYear = Year.now().getValue() + 2;
+
+
+        HttpResponse<String> beforeLimit = postMovie("Прибытие", 1887);
+        HttpResponse<String> afterLimit = postMovie("Прибытие", firstDisallowedYear);
+
+
+        assertValidationError(beforeLimit, 1);
+        assertValidationError(afterLimit, 1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"2016\"", "2016.5", "null", "true", "2147483648"})
+    void postMovies_whenYearIsNotAnInt_returns422(String yearJson) {
+        String body = "{\"title\": \"Прибытие\", \"year\": %s}".formatted(yearJson);
+
+        HttpResponse<String> response = postJson(body, JSON_UTF_8);
+
+        assertValidationError(response, 1);
+    }
+
+    @Test
+    void postMovies_whenBothFieldsAreMissing_returnsBothDetailsAndDoesNotAddAMovie() {
+        HttpResponse<String> invalid = postJson("{}", JSON_UTF_8);
+        HttpResponse<String> movies = send("GET", MOVIES_PATH);
+
+        assertValidationError(invalid, 2);
+        assertEquals(200, movies.statusCode());
+        assertEquals(List.of(), readMovies(movies));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[]", "null", "2016"})
+    void postMovies_whenBodyIsNotAnObject_returns422(String body) {
+        HttpResponse<String> response = postJson(body, JSON_UTF_8);
+
+        assertValidationError(response, 1);
+    }
+
+    @Test
+    void postMovies_whenJsonIsIncomplete_returns400() {
+        HttpResponse<String> response = postJson("{\"title\":", JSON_UTF_8);
+
+        assertError(response, 400);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"title\":TRUE}",
+            "{\"title\":\"A\nB\"}",
+            "{\"title\":\"A\\'B\"}"
+    })
+    void postMovies_whenJsonContainsInvalidStringOrLiteral_returns400(String body) {
+        HttpResponse<String> response = postJson(body, JSON_UTF_8);
+
+        assertError(response, 400);
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"text/plain", "application/jsonp", "application/json; charset=ISO-8859-1"})
+    void postMovies_whenContentTypeIsUnsupported_returns415(String contentType) {
+        String body = "{\"title\": \"Прибытие\", \"year\": 2016}";
+
+        HttpResponse<String> response = postJson(body, contentType);
+
+        assertError(response, 415);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"application/json", "Application/JSON; charset=\"utf-8\""})
+    void postMovies_whenContentTypeIsJson_createsMovie(String contentType) {
+        String body = "{\"title\": \"Прибытие\", \"year\": 2016}";
+
+        HttpResponse<String> response = postJson(body, contentType);
+
+        assertEquals(201, response.statusCode());
+        assertJsonContentType(response);
+    }
+
     private static void assertJsonContentType(HttpResponse<String> response) {
         assertEquals(JSON_UTF_8, response.headers().firstValue("Content-Type").orElseThrow());
+    }
+
+    private static ErrorResponse assertError(HttpResponse<String> response, int expectedStatus) {
+        assertEquals(expectedStatus, response.statusCode());
+        assertJsonContentType(response);
+        ErrorResponse error = GSON.fromJson(response.body(), ErrorResponse.class);
+        assertNotNull(error.error());
+        assertFalse(error.error().isBlank());
+
+        return error;
+    }
+
+    private static void assertValidationError(HttpResponse<String> response, int expectedDetailsCount) {
+        ErrorResponse error = assertError(response, 422);
+        assertNotNull(error.details());
+        assertEquals(expectedDetailsCount, error.details().size());
+        assertTrue(error.details().stream().noneMatch(String::isBlank));
     }
 
     private static List<Movie> readMovies(HttpResponse<String> response) {
@@ -127,12 +268,16 @@ public class MoviesApiTest {
     private HttpResponse<String> postMovie(String title, int year) {
         String json = GSON.toJson(Map.of("title", title, "year", year));
 
-        HttpRequest request = request(MOVIES_PATH)
-                .header("Content-Type", JSON_UTF_8)
-                .POST(HttpRequest.BodyPublishers.ofString(json, UTF_8))
-                .build();
+        return postJson(json, JSON_UTF_8);
+    }
 
-        return send(request);
+    private HttpResponse<String> postJson(String json, String contentType) {
+        HttpRequest.Builder builder = request(MOVIES_PATH);
+        if (contentType != null) {
+            builder.header("Content-Type", contentType);
+        }
+
+        return send(builder.POST(HttpRequest.BodyPublishers.ofString(json, UTF_8)).build());
     }
 
     private HttpRequest.Builder request(String path) {
