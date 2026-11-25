@@ -19,7 +19,7 @@ public class MoviesServer {
             throw new UncheckedIOException("Could not create HTTP server", exception);
         }
 
-        server.createContext(MoviesHandler.MOVIES_PATH, new MoviesHandler(store));
+        server.createContext("/", new MoviesHandler(store));
     }
 
     int getPort() {

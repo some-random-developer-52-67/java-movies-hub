@@ -27,6 +27,12 @@ public class MoviesStore {
         return Optional.ofNullable(movies.get(id));
     }
 
+    public synchronized List<Movie> findByYear(int year) {
+        return movies.values().stream()
+                .filter(movie -> movie.year() == year)
+                .toList();
+    }
+
     public synchronized boolean deleteById(long id) {
         return movies.remove(id) != null;
     }

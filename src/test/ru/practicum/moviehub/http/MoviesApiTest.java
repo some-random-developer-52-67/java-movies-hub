@@ -288,6 +288,98 @@ public class MoviesApiTest {
         assertEquals(List.of(remainingMovie), readMovies(movies));
     }
 
+    @Test
+    void getMovies_whenYearMatches_returnsOnlyMoviesFromThatYear() {
+        Movie first = createMovie("Прибытие", 2016);
+        Movie second = createMovie("Ла-Ла Ленд", 2016);
+        createMovie("Сталкер", 1979);
+
+
+        HttpResponse<String> response = send("GET", MOVIES_PATH + "?year=2016");
+
+
+        assertEquals(200, response.statusCode());
+        assertJsonContentType(response);
+        List<Movie> movies = readMovies(response);
+        assertEquals(2, movies.size());
+        assertTrue(movies.containsAll(List.of(first, second)));
+    }
+
+    @Test
+    void getMovies_whenYearValueIsPercentEncoded_filtersByDecodedValue() {
+        Movie movie = createMovie("Прибытие", 2016);
+        createMovie("Сталкер", 1979);
+
+
+        HttpResponse<String> response = send("GET", MOVIES_PATH + "?year=201%36");
+
+
+        assertEquals(200, response.statusCode());
+        assertJsonContentType(response);
+        assertEquals(List.of(movie), readMovies(response));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1800, 2017})
+    void getMovies_whenYearDoesNotMatch_returnsEmptyArray(int year) {
+        createMovie("Прибытие", 2016);
+
+
+        HttpResponse<String> response = send("GET", MOVIES_PATH + "?year=" + year);
+
+
+        assertEquals(200, response.statusCode());
+        assertJsonContentType(response);
+        assertEquals(List.of(), readMovies(response));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"year", "year=", "year=abc", "year=2016.0", "year=2147483648", "year=2016&year=2017"})
+    void getMovies_whenYearIsInvalid_returns400(String query) {
+        HttpResponse<String> response = send("GET", MOVIES_PATH + "?" + query);
+
+
+        assertError(response, 400);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/unknown", "/movies-other", "/movies/", "/movies/1/other"})
+    void get_whenPathIsUnknown_returns404(String path) {
+        HttpResponse<String> response = send("GET", path);
+
+
+        assertError(response, 404);
+    }
+
+    @Test
+    void putMovies_whenMethodIsUnsupported_returns405AndAllowedMethods() {
+        HttpResponse<String> response = send("PUT", MOVIES_PATH);
+
+
+        assertError(response, 405);
+        assertEquals("GET, POST", response.headers().firstValue("Allow").orElseThrow());
+    }
+
+    @Test
+    void putMovie_whenMethodIsUnsupported_returns405AndAllowedMethods() {
+        HttpResponse<String> response = send("PUT", MOVIES_PATH + "/42");
+
+
+        assertError(response, 405);
+        assertEquals("GET, DELETE", response.headers().firstValue("Allow").orElseThrow());
+    }
+
+    @Test
+    void headMovies_whenMethodIsUnsupported_returns405WithNoBody() {
+        HttpResponse<String> response = send("HEAD", MOVIES_PATH);
+
+
+        assertEquals(405, response.statusCode());
+        assertJsonContentType(response);
+        assertEquals("GET, POST", response.headers().firstValue("Allow").orElseThrow());
+        assertEquals("", response.body());
+    }
+
     private static void assertJsonContentType(HttpResponse<String> response) {
         assertEquals(JSON_UTF_8, response.headers().firstValue("Content-Type").orElseThrow());
     }
