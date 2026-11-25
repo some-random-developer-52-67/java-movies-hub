@@ -229,6 +229,65 @@ public class MoviesApiTest {
         assertJsonContentType(response);
     }
 
+    @Test
+    void getMovie_whenIdExists_returnsMovie() {
+        Movie movie = createMovie("Прибытие", 2016);
+        String path = MOVIES_PATH + "/" + movie.id();
+
+
+        HttpResponse<String> response = send("GET", path);
+
+
+        assertEquals(200, response.statusCode());
+        assertJsonContentType(response);
+        assertEquals(movie, readMovie(response));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GET", "DELETE"})
+    void movieById_whenMovieIsMissing_returns404(String method) {
+        HttpResponse<String> response = send(method, MOVIES_PATH + "/42");
+
+
+        assertError(response, 404);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abc", "1.5", "9223372036854775808"})
+    void movieById_whenIdIsInvalid_returns400ForGetAndDelete(String id) {
+        String path = MOVIES_PATH + "/" + id;
+
+
+        HttpResponse<String> get = send("GET", path);
+        HttpResponse<String> delete = send("DELETE", path);
+
+
+        assertError(get, 400);
+        assertError(delete, 400);
+    }
+
+    @Test
+    void deleteMovie_whenIdExists_returns204AndRemovesMovie() {
+        Movie movie = createMovie("Прибытие", 2016);
+        Movie remainingMovie = createMovie("Сталкер", 1979);
+        String path = MOVIES_PATH + "/" + movie.id();
+
+
+        HttpResponse<String> first = send("DELETE", path);
+        HttpResponse<String> second = send("DELETE", path);
+        HttpResponse<String> get = send("GET", path);
+        HttpResponse<String> movies = send("GET", MOVIES_PATH);
+
+
+        assertEquals(204, first.statusCode());
+        assertJsonContentType(first);
+        assertEquals("", first.body());
+        assertError(second, 404);
+        assertError(get, 404);
+        assertEquals(200, movies.statusCode());
+        assertEquals(List.of(remainingMovie), readMovies(movies));
+    }
+
     private static void assertJsonContentType(HttpResponse<String> response) {
         assertEquals(JSON_UTF_8, response.headers().firstValue("Content-Type").orElseThrow());
     }

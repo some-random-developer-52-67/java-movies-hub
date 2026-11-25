@@ -27,4 +27,9 @@ public abstract class BaseHttpHandler implements HttpHandler {
         sendJson(exchange, status, new ErrorResponse(error));
     }
 
+    protected void sendNoContent(HttpExchange exchange) throws IOException {
+        exchange.getResponseHeaders().set(CONTENT_TYPE_HEADER, JsonMediaType.UTF_8_CONTENT_TYPE);
+        exchange.sendResponseHeaders(204, -1);
+    }
+
 }

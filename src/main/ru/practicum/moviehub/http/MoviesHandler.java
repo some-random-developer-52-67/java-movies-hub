@@ -16,6 +16,8 @@ import java.util.Optional;
 final class MoviesHandler extends BaseHttpHandler {
 
     static final String MOVIES_PATH = "/movies";
+    private static final String MOVIE_PATH_PREFIX = MOVIES_PATH + "/";
+    private static final String MOVIE_NOT_FOUND = "Фильм не найден";
     private static final String VALIDATION_ERROR = "Ошибка валидации";
     private static final String LOCATION_HEADER = "Location";
 
@@ -28,12 +30,14 @@ final class MoviesHandler extends BaseHttpHandler {
     @Override
     public void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
-            if (!MOVIES_PATH.equals(exchange.getRequestURI().getPath())) {
-                exchange.sendResponseHeaders(404, -1);
-                return;
+            String path = exchange.getRequestURI().getPath();
+            if (MOVIES_PATH.equals(path)) {
+                handleMovies(exchange);
+            } else if (isMoviePath(path)) {
+                handleMovie(exchange, path.substring(MOVIE_PATH_PREFIX.length()));
+            } else {
+                sendError(exchange, 404, "Маршрут не найден");
             }
-
-            handleMovies(exchange);
         }
     }
 
@@ -45,6 +49,42 @@ final class MoviesHandler extends BaseHttpHandler {
             createMovie(exchange);
         } else {
             exchange.sendResponseHeaders(404, -1);
+        }
+    }
+
+    private void handleMovie(HttpExchange exchange, String pathId) throws IOException {
+        long id;
+        try {
+            id = Long.parseLong(pathId);
+        } catch (NumberFormatException exception) {
+            sendError(exchange, 400, "Некорректный ID");
+            return;
+        }
+
+        String method = exchange.getRequestMethod();
+        if (HttpMethod.GET.name().equals(method)) {
+            getMovie(exchange, id);
+        } else if (HttpMethod.DELETE.name().equals(method)) {
+            deleteMovie(exchange, id);
+        } else {
+            exchange.sendResponseHeaders(404, -1);
+        }
+    }
+
+    private void getMovie(HttpExchange exchange, long id) throws IOException {
+        Optional<Movie> movie = store.findById(id);
+        if (movie.isPresent()) {
+            sendJson(exchange, 200, movie.get());
+        } else {
+            sendError(exchange, 404, MOVIE_NOT_FOUND);
+        }
+    }
+
+    private void deleteMovie(HttpExchange exchange, long id) throws IOException {
+        if (store.deleteById(id)) {
+            sendNoContent(exchange);
+        } else {
+            sendError(exchange, 404, MOVIE_NOT_FOUND);
         }
     }
 
@@ -82,6 +122,12 @@ final class MoviesHandler extends BaseHttpHandler {
 
         exchange.getResponseHeaders().set(LOCATION_HEADER, MOVIES_PATH + "/" + movie.id());
         sendJson(exchange, 201, movie);
+    }
+
+    private static boolean isMoviePath(String path) {
+        int prefixLength = MOVIE_PATH_PREFIX.length();
+
+        return path.startsWith(MOVIE_PATH_PREFIX) && path.length() > prefixLength && path.indexOf('/', prefixLength) < 0;
     }
 
 }

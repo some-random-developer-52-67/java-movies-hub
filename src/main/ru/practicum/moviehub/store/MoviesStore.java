@@ -5,6 +5,7 @@ import ru.practicum.moviehub.model.Movie;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class MoviesStore {
 
@@ -20,6 +21,14 @@ public class MoviesStore {
 
     public synchronized List<Movie> getAll() {
         return List.copyOf(movies.values());
+    }
+
+    public synchronized Optional<Movie> findById(long id) {
+        return Optional.ofNullable(movies.get(id));
+    }
+
+    public synchronized boolean deleteById(long id) {
+        return movies.remove(id) != null;
     }
 
 }
